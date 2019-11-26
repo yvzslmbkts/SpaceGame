@@ -1,13 +1,14 @@
 from pyrr import Vector3, Matrix44, vector, vector3
 from math import sin, cos, radians
+import glm
 
 
 class Camera:
-    def __init__(self):
-        self.camera_pos = Vector3([0.0, 0.0, 3.0])
-        self.camera_front = Vector3([0.0, 0.0, -1.0])
-        self.camera_up = Vector3([0.0, 1.0, 0.0])
-        self.camera_right = Vector3([1.0, 0.0, 0.0])
+    def __init__(self,position=glm.vec3(0.0, 0.0, 3.0), up=glm.vec3(0.0, 1.0, 0.0)):
+        self.camera_pos = position
+        self.camera_front = glm.vec3(0.0, 0.0, -1.0)
+        self.camera_up = up
+        self.camera_right = glm.vec3(1.0, 0.0, 0.0)
 
         self.mouse_sensitivity = 0.25
         self.yaw = -90.0
@@ -46,13 +47,13 @@ class Camera:
         self.update_camera_vectors()
 
     def update_camera_vectors(self):
-        front = Vector3([0.0, 0.0, 0.0])
+        front = glm.vec3(0.0, 0.0, 0.0)
         front.x = cos(radians(self.yaw)) * cos(radians(self.pitch))
         front.y = sin(radians(self.pitch))
         front.z = sin(radians(self.yaw)) * cos(radians(self.pitch))
 
         self.camera_front = vector.normalise(front)
-        self.camera_right = vector.normalise(vector3.cross(self.camera_front, Vector3([0.0, 1.0, 0.0])))
+        self.camera_right = vector.normalise(vector3.cross(self.camera_front, glm.vec3(0.0, 1.0, 0.0)))
         self.camera_up = vector.normalise(vector3.cross(self.camera_right, self.camera_front))
 
     def look_at(self, position, target, world_up):
@@ -65,12 +66,12 @@ class Camera:
         yaxis = vector3.cross(zaxis, xaxis)
 
         # create translation and rotation matrix
-        translation = Matrix44.identity()
+        translation = glm.mat4x4(1.0)
         translation[3][0] = -position.x
         translation[3][1] = -position.y
         translation[3][2] = -position.z
 
-        rotation = Matrix44.identity()
+        rotation = glm.mat4x4(1.0)
         rotation[0][0] = xaxis[0]
         rotation[1][0] = xaxis[1]
         rotation[2][0] = xaxis[2]

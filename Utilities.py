@@ -1,3 +1,4 @@
+from os import path
 from collections import OrderedDict
 from typing import List, Dict
 
@@ -7,14 +8,10 @@ import numpy as np
 from PIL import Image
 
 
-def load_image_to_texture(image_name):
-    # This command is necessary in our case to load textures.
-    # Read more on https://www.khronos.org/opengl/wiki/Common_Mistakes under "Texture upload and pixel reads"
-    gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 1)
-
+def load_image_to_texture(image_file_name, mag_filter=gl.GL_LINEAR, min_filter=gl.GL_LINEAR_MIPMAP_LINEAR):
     # Read image data
     # The y-coordinates of image data and what OpenGL is expecting are reversed. So we flip the y-coordinates
-    image = Image.open(image_name).transpose(Image.FLIP_TOP_BOTTOM)
+    image = Image.open(image_file_name).transpose(Image.FLIP_TOP_BOTTOM)
     # Load the data into a numpy array so we can pass it to OpenGL
     image_data = np.array(image.getdata(), dtype=np.uint8)
 
@@ -27,8 +24,8 @@ def load_image_to_texture(image_name):
     # Set its parameters
     gl.glTexParameterf(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_REPEAT)
     gl.glTexParameterf(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_REPEAT)
-    gl.glTexParameterf(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST)
-    gl.glTexParameterf(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR_MIPMAP_LINEAR)
+    gl.glTexParameterf(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, mag_filter)
+    gl.glTexParameterf(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, min_filter)
 
     # Check if the texture has an Alpha (transparency) chanel or not. It won't work properly with the wrong type.
     if image.mode == "RGBA":
@@ -56,11 +53,25 @@ class Material:
         self.Kd = glm.vec3(0.0)
         self.Ks = glm.vec3(0.0)
         self.Ns = 0.0
+        self.map_Ka = None
         self.map_Kd = None
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state["Ka"] = tuple(state["Ka"])
+        state["Kd"] = tuple(state["Kd"])
+        state["Ks"] = tuple(state["Ks"])
+        return state
 
-def parse_material_file(material_file_name):
-    with open(material_file_name, "r") as material_file:
+    def __setstate__(self, state):
+        state["Ka"] = glm.vec3(state["Ka"])
+        state["Kd"] = glm.vec3(state["Kd"])
+        state["Ks"] = glm.vec3(state["Ks"])
+        self.__dict__.update(state)
+
+
+def parse_material_file(material_file_name, obj_file_path=""):
+    with open(path.join(obj_file_path, material_file_name), "r") as material_file:
         materials: Dict[str, Material] = dict()
         current_material: Material = None
 
@@ -84,8 +95,11 @@ def parse_material_file(material_file_name):
             elif tokens[0] == "Ns":
                 current_material.Ns = float(tokens[1])
 
+            elif tokens[0] == "map_Ka":
+                current_material.map_Ka = path.join(obj_file_path, tokens[1])
+
             elif tokens[0] == "map_Kd":
-                current_material.map_Kd = tokens[1]
+                current_material.map_Kd = path.join(obj_file_path, tokens[1])
 
             else:
                 current_material.properties[tokens[0]] = tokens[1]
@@ -101,16 +115,19 @@ class Mesh:
 
 
 class ParsedObjData:
-    def __init__(self, positions, texture_positions, normals, meshes):
+    def __init__(self, positions, texture_positions, normals, meshes, dimensions=None):
         self.positions = positions
+        self.dimensions = dimensions
         self.texture_positions = texture_positions
         self.normals = normals
         self.meshes: List[Mesh] = meshes
 
 
-def parse_obj_file(obj_name) -> ParsedObjData:
-    if not obj_name.endswith(".obj"):
-        raise RuntimeError(f"Can't load '{obj_name}', because it is not an .obj file")
+def parse_obj_file(obj_file_name) -> ParsedObjData:
+    obj_file_path, obj_file_name = path.split(obj_file_name)
+
+    if not obj_file_name.endswith(".obj"):
+        raise RuntimeError(f"Can't load '{obj_file_name}', because it is not an .obj file")
 
     positions = []
     texture_positions = []
@@ -125,7 +142,7 @@ def parse_obj_file(obj_name) -> ParsedObjData:
 
     current_mesh_name = "unnamed"
 
-    with open(obj_name, "r") as obj_file:
+    with open(path.join(obj_file_path, obj_file_name), "r") as obj_file:
         for line in obj_file.readlines():
             tokens = line.strip().split()
 
@@ -171,7 +188,7 @@ def parse_obj_file(obj_name) -> ParsedObjData:
                     faces = []
 
             elif tokens[0] == "mtllib":
-                materials.update(parse_material_file(tokens[1]))
+                materials.update(parse_material_file(tokens[1], obj_file_path))
 
     # Create a mesh from remaining faces
     meshes.append(
@@ -219,7 +236,7 @@ def format_for_draw_elements(parsed_obj_data) -> ParsedObjData:
             Mesh(mesh.name, mesh.material, formatted_indices)
         )
 
-    return ParsedObjData(positions, texture_positions, normals, meshes)
+    return ParsedObjData(positions, texture_positions, normals, meshes, dimensions=parsed_obj_data.dimensions)
 
 
 def send_data_to_vertex_buffer(data, location) -> int:
@@ -275,13 +292,20 @@ def send_indices_to_element_buffer(data) -> int:
     return element_buffer
 
 
-def normalize_positions(vertex_data):
+def normalize_data(vertex_data):
     data = np.array(vertex_data, dtype=np.float32)
 
     data_max = data.max()
     data_min = data.min()
 
     return (data - data_min) / (data_max - data_min) * 2.0 - 1.0
+
+
+def get_dimensions(vertex_data):
+    data = np.array(vertex_data, dtype=np.float32)
+    mins = data.min(axis=0)
+    maxs = data.max(axis=0)
+    return tuple(zip(mins, maxs))
 
 
 class BoundMesh:
@@ -293,6 +317,11 @@ class BoundMesh:
 
 
 def bind_material_textures(material: Material):
+    if material.map_Ka is not None:
+        material.map_Ka = load_image_to_texture(material.map_Ka)
+    else:
+        material.map_Ka = 0
+
     if material.map_Kd is not None:
         material.map_Kd = load_image_to_texture(material.map_Kd)
     else:
@@ -302,15 +331,20 @@ def bind_material_textures(material: Material):
 
 
 class BoundObjData:
-    def __init__(self, positions_buffer, texture_positions_buffer, normals_buffer, bound_meshes, vao=0):
+    def __init__(self, vao, positions_buffer, texture_positions_buffer, normals_buffer, meshes, dimensions):
         self.vao = vao
         self.positions_buffer = positions_buffer
         self.texture_positions_buffer = texture_positions_buffer
         self.normals_buffer = normals_buffer
-        self.bound_meshes: List[BoundMesh] = bound_meshes
+        self.meshes: List[BoundMesh] = meshes
+        self.dimensions = dimensions
 
 
 def bind_mesh_data(mesh_data_in_draw_elements_format) -> BoundObjData:
+    # Create and bind a Vertex Array Object to save the Vertex Buffer configurations we will make
+    vao = gl.glGenVertexArrays(1)
+    gl.glBindVertexArray(vao)
+
     # Create the position buffer. It will store 3D position of each vertex at location 0
     position_buffer = send_data_to_vertex_buffer(
         mesh_data_in_draw_elements_format.positions,
@@ -330,10 +364,10 @@ def bind_mesh_data(mesh_data_in_draw_elements_format) -> BoundObjData:
     )
 
     # Create the element buffers for each mesh
-    bound_meshes = []
+    meshes = []
 
     for mesh in mesh_data_in_draw_elements_format.meshes:
-        bound_meshes.append(
+        meshes.append(
             BoundMesh(
                 mesh.name,
                 bind_material_textures(mesh.material),
@@ -344,19 +378,20 @@ def bind_mesh_data(mesh_data_in_draw_elements_format) -> BoundObjData:
             )
         )
 
-    return BoundObjData(position_buffer, texture_positions_buffer, normals_buffer, bound_meshes)
-
-
-def bind_mesh_data_with_vao(mesh_data_in_draw_elements_format):
-    # Create and bind a Vertex Array Object to save the Vertex Buffer configurations we will make
-    vao = gl.glGenVertexArrays(1)
-    gl.glBindVertexArray(vao)
-
-    # Bind buffers
-    bound_obj_data = bind_mesh_data(mesh_data_in_draw_elements_format)
-    bound_obj_data.vao = vao
-
     # Bind Vertex Array to 0 (default) to keep the state clear
     gl.glBindVertexArray(0)
 
-    return bound_obj_data
+    return BoundObjData(vao, position_buffer, texture_positions_buffer, normals_buffer, meshes, mesh_data_in_draw_elements_format.dimensions)
+
+
+def parse_and_bind_obj_file(obj_file_name, normalize_positions=True):
+    obj_data = parse_obj_file(obj_file_name)
+
+    if normalize_positions:
+        obj_data.positions = normalize_data(obj_data.positions)
+
+    obj_data.dimensions = get_dimensions(obj_data.positions)
+
+    formatted_obj_data = format_for_draw_elements(obj_data)
+
+    return bind_mesh_data(formatted_obj_data)
