@@ -4,6 +4,7 @@ import glm
 import numpy as np
 from OpenGL import GL as gl, GLUT as glut
 from OpenGL.GL import shaders
+from SkyboxShader import SkyboxShader
 from Utilities import *
 from Camera import *
 import time
@@ -79,7 +80,8 @@ class GameObject:
         # Set the vao
         gl.glBindVertexArray(self.obj_data.vao)
         self.texture_type = type
-        # Set material uniforms
+        #Set material uniforms
+        
         # gl.glUniform3fv(ambient_color_location, 1, glm.value_ptr(self.obj_data.meshes[0].material.Ka))
         # gl.glUniform3fv(diffuse_color_location, 1, glm.value_ptr(self.obj_data.meshes[0].material.Kd))
         # gl.glUniform3fv(specular_color_location, 1, glm.value_ptr(self.obj_data.meshes[0].material.Ks))
@@ -176,11 +178,18 @@ screen_size = glm.vec2(800, 600)
 glut.glutCreateWindow("Space Game")
 glut.glutReshapeWindow(int(screen_size.x), int(screen_size.y))
 
-lives = 3
 
+skybox_texture = TextureLoader.load_images_to_cubemap_texture(
+    "Assets/skybox_bg/morningdew_rt.tga", "Assets/skybox_bg/morningdew_lf.tga",
+    "Assets/skybox_bg/morningdew_up.png", "Assets/skybox_bg/morningdew_dn.png",
+    "Assets/skybox_bg/morningdew_bk.tga", "Assets/skybox_bg/morningdew_ft.tga",
+)
+
+lives = 100
 hit_recovery_time = 2.0
 last_hit_at = 0.0
 time_passed = 0.0
+score = 0
 
 # Set callback functions
 def display():
@@ -190,6 +199,19 @@ def display():
     # Clear screen
     gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
 
+
+    # gl.glDepthMask(gl.GL_FALSE)
+    # gl.glCullFace(gl.GL_FRONT)
+    # skybox_shader.draw(
+    #     perspective_projection,
+    #     glm.mat4x4(glm.mat3x3(camera.get_view_matrix())),
+    #     # glm.mat4x4(),
+    #     skybox_texture
+    # )
+    # gl.glDepthMask(gl.GL_TRUE)
+    # gl.glCullFace(gl.GL_BACK)
+
+
     gl.glUniformMatrix4fv(projection_location, 1, False, glm.value_ptr(perspective_projection))
 
     gl.glUniformMatrix4fv(view_location, 1, False, glm.value_ptr(camera.get_view_matrix()))
@@ -197,14 +219,14 @@ def display():
     gl.glUniform3fv(camera_position_location, 1, glm.value_ptr(camera.camera_pos))
 
     # Demonstrate some collision checking
-    for collision_tester in collision_testers:
-        if main_object.check_AABB_collision(collision_tester.get_AABB()):
-            collision_tester.obj_data.meshes[0].material.Kd = glm.vec3(0.0, 0.0, 1.0)
-            collision_tester.obj_data.meshes[0].material.Ka = glm.vec3(0.0, 0.0, 1.0)
-            print('Carptiniz')
-        else:
-            collision_tester.obj_data.meshes[0].material.Kd = primitive_objs["sphere"].meshes[0].material.Kd
-            collision_tester.obj_data.meshes[0].material.Ka = primitive_objs["sphere"].meshes[0].material.Ka
+    # for collision_tester in collision_testers:
+    #     if main_object.check_AABB_collision(collision_tester.get_AABB()):
+    #         collision_tester.obj_data.meshes[0].material.Kd = glm.vec3(0.0, 0.0, 1.0)
+    #         collision_tester.obj_data.meshes[0].material.Ka = glm.vec3(0.0, 0.0, 1.0)
+    #         print('Carptiniz')
+    #     else:
+    #         collision_tester.obj_data.meshes[0].material.Kd = primitive_objs["sphere"].meshes[0].material.Kd
+    #         collision_tester.obj_data.meshes[0].material.Ka = primitive_objs["sphere"].meshes[0].material.Ka
 
     #collision_tester_parent.rotation = glm.quat(glm.vec3(0.0, 0.0, glm.radians(time.perf_counter() * 10.0)))
     counter = 0
@@ -223,23 +245,63 @@ def display():
         #collision_tester.drawAABB()
         counter +=1
 
-    main_object.draw(space_ship)
     #main_object.drawAABB()
-    camera.process_keyboard("FORWARD", 1) # This is for moving along the x axis
-    main_object.position = camera.camera_pos + (0.0, -1.5, -5.0)
+    main_object.position = camera.camera_pos + (0.0, -1.0, -5.0)
+    health_object.position = camera.camera_pos + (0.09, 0.06, -0.2)
 
-    global last_hit_at, lives
+
+    global last_hit_at, lives ,textType
     if time_passed >= last_hit_at + hit_recovery_time:
         for collision_tester in collision_testers:
             if main_object.check_AABB_collision(collision_tester.get_AABB()):
                 if collision_tester.texture_type == metal:
                     last_hit_at = time_passed
-                    lives -= 2
+                    lives -= 15
+                    textType = 'metal'
                     print(lives)
-                else:
+                elif collision_tester.texture_type == brick:
                     last_hit_at = time_passed
-                    lives -= 1
+                    lives -= 10
+                    textType = 'brick'
                     print(lives)
+                elif collision_tester.texture_type == crate:                    
+                    last_hit_at = time_passed
+                    lives -= 5
+                    textType = 'crate'
+                    print(lives)
+    if (lives <= 0 ):
+        sys.exit()
+    elif (75 < lives <=100):
+        health_object.draw(space_ship)
+        main_object.draw(space_ship)
+    elif (50 < lives <= 75):
+        health_object.draw(space_ship_green)
+        main_object.draw(space_ship)
+    elif (25 < lives <=50):
+        main_object.draw(space_ship)
+        health_object.draw(space_ship_yellow)
+    elif (0 < lives <= 25):
+        main_object.draw(space_ship)
+        health_object.draw(space_ship_red)
+
+
+
+
+    if time_passed < last_hit_at + hit_recovery_time:
+        if textType == 'metal':
+            camera.process_keyboard("FORWARD", 0.3) # This is for moving along the x axis
+        elif textType == 'brick':
+            camera.process_keyboard("FORWARD", 0.5) # This is for moving along the x axis
+        elif textType == 'crate':
+            camera.process_keyboard("FORWARD", 0.7) # This is for moving along the x axis
+    else:
+        camera.process_keyboard("FORWARD", 1)
+
+    score = int(time_passed)
+    print(score)
+    print(camera.camera_pos)
+        
+
 
     # Swap the buffer we just drew on with the one showing on the screen
     glut.glutSwapBuffers()
@@ -262,13 +324,13 @@ def keyboard_input(key, x, y):
     if key == b'\x1b':
         sys.exit()
     if key == b'\x77':
-        camera.process_keyboard("UPWARD", 0.1)
+        camera.process_keyboard("UPWARD", 0.4)
     if key == b'\x73':
-        camera.process_keyboard("DOWNWARD", 0.1)
+        camera.process_keyboard("DOWNWARD", 0.4)
     if key == b'\x61':
-        camera.process_keyboard("LEFT", 0.1)
+        camera.process_keyboard("LEFT", 0.4)
     if key == b'\x64':
-        camera.process_keyboard("RIGHT", 0.1)
+        camera.process_keyboard("RIGHT", 0.4)
 
 glut.glutKeyboardFunc(keyboard_input)
 
@@ -400,7 +462,7 @@ view_location = gl.glGetUniformLocation(shader_program, "view")
 projection_location = gl.glGetUniformLocation(shader_program, "projection")
 
 # Set the light_position uniform
-light_position = glm.vec3(0.0, -1.0, -1.0)
+light_position = glm.vec3(0.0, 0.0, 20.0)
 light_position_location = gl.glGetUniformLocation(shader_program, "light_position")
 gl.glUniform3fv(light_position_location, 1, glm.value_ptr(light_position))
 
@@ -438,15 +500,24 @@ primitive_objs = {
     "disc": parse_and_bind_obj_file("Assets/Primitives/disc.obj"),
 }
 
+
 crate = TextureLoader.load_texture("res/crate.jpg")
 metal = TextureLoader.load_texture("res/metal.jpg")
 brick = TextureLoader.load_texture("res/brick.jpg")
 space_ship = TextureLoader.load_texture("res/spaceship.jpg")
+space_ship_yellow = TextureLoader.load_texture("res/spaceship_yellow.jpg")
+space_ship_green = TextureLoader.load_texture("res/spaceship_green.jpg")
+space_ship_red = TextureLoader.load_texture("res/spaceship_red.jpg")
+
 world = TextureLoader.load_texture("res/world.jpg")
 
 # Create Camera and Game Objects -----------------------------------------------------|
 
+#skybox_shader = SkyboxShader(deepcopy(primitive_objs["cube"]))
+
 perspective_projection = glm.perspective(glm.radians(45.0), screen_size.x / screen_size.y, 0.1, 100.0)
+
+
 
 camera = Camera(position=glm.vec3(0.0, 0.0, 20.0))
 
@@ -469,12 +540,22 @@ for i in range(count):
 
 # Lets create a game object to demonstrate dynamic parent changes
 red_sphere_obj = deepcopy(primitive_objs["sphere"])
+red_sphere_obj2 = deepcopy(primitive_objs["sphere"])
+
 #red_sphere_obj.meshes[0].material.Kd = glm.vec3(0.003, 0.003, 0.003)
 #red_sphere_obj.meshes[0].material.Ka = glm.vec3(0.003, 0.003, 0.003)
 main_object = GameObject(
     red_sphere_obj,
     scale=glm.vec3(0.5),
 )
+
+health_object = GameObject(
+    red_sphere_obj2,
+    scale=glm.vec3(0.01),
+)
+
+
+#Create shader for Skybox // Sikinti burdan cikiyor derstten sonra halledilecek. 
 
 # Start the main loop
 glut.glutMainLoop()
